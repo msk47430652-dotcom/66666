@@ -1,0 +1,123 @@
+name: Build Wild Frontier Compact Keys APK
+on:
+  push:
+    paths:
+      - 'patch_keypad.py'
+      - '.github/workflows/keypad-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned WIPI source
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - name: Get tested compatible Rust native library (unchanged)
+        uses: actions/download-artifact@v4
+        with:
+          name: WF-S26-fixed-engine-no-game
+          run-id: 40273598268
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: precompiled
+      - name: Verify native engine and modify Android source
+        run: |
+          test -s precompiled/rust/target/aarch64-linux-android/release/libwipi_android.so
+          python3 patch_keypad.py upstream
+          mkdir -p upstream/android/app/src/main/jniLibs/arm64-v8a
+          cp precompiled/rust/target/aarch64-linux-android/release/libwipi_android.so upstream/android/app/src/main/jniLibs/arm64-v8a/libwipi_android.so
+          grep -q 'nativeSetFrameLimit' upstream/android/app/src/main/java/com/parkjeongseop/wipi/WipiNative.kt || true
+      - name: Enable frame-paced JNI API in source matching native library
+        run: |
+          # Patch only Android source and do not recompile the native engine.
+          python3 - <<'PY'
+          from pathlib import Path
+          base=Path('upstream/android/app/src/main/java/com/parkjeongseop/wipi')
+          p=base/'WipiNative.kt'
+          s=p.read_text()
+          needle='    external fun nativeSetPaused(paused: Boolean)'
+          assert s.count(needle)==1
+          s=s.replace(needle,needle+'\n\n    external fun nativeSetFrameLimit(fps: Int)',1)
+          p.write_text(s)
+          p=base/'MainActivity.kt'
+          s=p.read_text()
+          needle='        var showSettings by remember { mutableStateOf(false) } // iOS sheet 대응 오버레이\n'
+          assert s.count(needle)==1
+          s=s.replace(needle,needle+'''
+                  LaunchedEffect(Unit) {
+                      try {
+                          val saveDir = File(filesDir, "wildfrontier_save")
+                          saveDir.mkdirs()
+                          val bundledGame = assets.open("wildfrontier.zip").use { it.readBytes() }
+                          if (start(bundledGame, "wildfrontier.zip", saveDir)) {
+                              errorMessage = null
+                              screen = Screen.Emulator
+                          } else {
+                              errorMessage = pendingError() ?: getString(R.string.error_start_failed)
+                          }
+                      } catch (e: Exception) {
+                          errorMessage = "Wild Frontier: " + (e.message ?: "Missing game")
+                      }
+                  }
+          ''',1)
+          needle='        var paused by remember { mutableStateOf(false) }'
+          assert s.count(needle)==1
+          s=s.replace(needle,needle+'\n        var fpsLimit by remember { mutableStateOf(30) }',1)
+          needle='            // 우상단: 일시정지 + 설정 (iOS와 동일 구성)'
+          assert s.count(needle)==1
+          s=s.replace(needle,'''
+                  Row(modifier = Modifier.align(Alignment.TopStart)) {
+                      IconButton(onClick = {
+                          fpsLimit = when (fpsLimit) {
+                              30 -> 45
+                              45 -> 60
+                              60 -> 0
+                              0 -> 20
+                              20 -> 15
+                              else -> 30
+                          }
+                          WipiNative.nativeSetFrameLimit(fpsLimit)
+                      }) {
+                          Text(if (fpsLimit == 0) "MAX" else "${fpsLimit}FPS",
+                              color = Color.White, fontSize = 12.sp)
+                      }
+                  }
+          '''+needle,1)
+          p.write_text(s)
+          g=Path('upstream/android/app/build.gradle.kts')
+          s=g.read_text()
+          assert 'applicationId = "com.parkjeongseop.wipi"' in s
+          s=s.replace('applicationId = "com.parkjeongseop.wipi"', 'applicationId = "org.wildfrontier.personal"')
+          s=s.replace('abiFilters += listOf("arm64-v8a", "x86_64")','abiFilters += listOf("arm64-v8a")')
+          g.write_text(s)
+          for path in Path('upstream/android/app/src/main/res').glob('values*/strings.xml'):
+              d=path.read_text()
+              import re
+              d=re.sub(r'<string name="app_name">[^<]+</string>', '<string name="app_name">와일드프론티어</string>', d)
+              path.write_text(d)
+          PY
+      - name: Android SDK 36
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Package compact keypad Android app
+        working-directory: upstream/android
+        run: gradle --no-daemon assembleDebug
+      - name: Verify native library matches previous and DEX contains keypad hints
+        run: |
+          unzip -p upstream/android/app/build/outputs/apk/debug/app-debug.apk lib/arm64-v8a/libwipi_android.so | sha256sum
+          sha256sum precompiled/rust/target/aarch64-linux-android/release/libwipi_android.so
+          unzip -l upstream/android/app/build/outputs/apk/debug/app-debug.apk | grep classes.dex
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WildFrontier-CompactKeypad-Shell
+          path: upstream/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
