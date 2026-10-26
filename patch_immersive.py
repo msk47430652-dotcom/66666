@@ -31,7 +31,7 @@ s=s.replace(needle,"""    private fun hideSystemBars() {
         super.onCreate(savedInstanceState)
         hideSystemBars()
 """,1)
-a=s.index('            Row(modifier = Modifier.align(Alignment.TopStart)) {')
+a=s.rfind('\n', 0, s.index('Row(modifier = Modifier.align(Alignment.TopStart)) {')) + 1
 b=s.index('            // 우상단: 일시정지 + 설정 (iOS와 동일 구성)',a)
 s=s[:a]+s[b:]
 a=s.index('            // 우상단: 일시정지 + 설정 (iOS와 동일 구성)')
