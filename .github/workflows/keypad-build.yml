@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - 'patch_keypad.py'
+      - 'patch_immersive.py'
       - '.github/workflows/keypad-build.yml'
   workflow_dispatch:
 permissions:
@@ -101,6 +102,8 @@ jobs:
               d=re.sub(r'<string name="app_name">[^<]+</string>', '<string name="app_name">와일드프론티어</string>', d)
               path.write_text(d)
           PY
+      - name: Correct system bar insets and place FPS inside controller bar
+        run: python3 patch_immersive.py upstream
       - name: Android SDK 36
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
