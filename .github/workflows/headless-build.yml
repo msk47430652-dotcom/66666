@@ -1,0 +1,28 @@
+name: Build local WIPI headless debug runner
+on:
+  push:
+    paths:
+      - '.github/workflows/headless-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch MIT WIPI emulator
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Linux headless test program
+        working-directory: upstream/rust
+        run: cargo build --locked --release --package wipi_android --bin headless
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WIPI-headless-Linux-test
+          path: upstream/rust/target/release/headless
+          if-no-files-found: error
