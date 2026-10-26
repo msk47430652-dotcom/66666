@@ -1,0 +1,59 @@
+name: Build Android APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone upstream
+        run: git clone --depth 1 https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+      - name: Verify game handling and patch (when private game file present)
+        run: python3 scripts/embed_game.py upstream
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK / NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006'
+      - name: Rust Android toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Configure Rust linker
+        run: |
+          set -euo pipefail
+          LLVM="$ANDROID_HOME/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          mkdir -p upstream/rust/.cargo
+          printf '[target.aarch64-linux-android]\nlinker = "%s/aarch64-linux-android26-clang"\nrustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]\n[env]\nCC_aarch64_linux_android = "%s/aarch64-linux-android26-clang"\nAR_aarch64_linux_android = "%s/llvm-ar"\n' "$LLVM" "$LLVM" "$LLVM" > upstream/rust/.cargo/config.toml
+      - name: Compile Rust WIPI core
+        working-directory: upstream/rust
+        run: cargo build --release --locked --target aarch64-linux-android -p wipi_android
+      - name: Install JNI library
+        run: |
+          mkdir -p upstream/android/app/src/main/jniLibs/arm64-v8a
+          cp upstream/rust/target/aarch64-linux-android/release/libwipi_android.so upstream/android/app/src/main/jniLibs/arm64-v8a/
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Build APK
+        working-directory: upstream/android
+        run: gradle --no-daemon assembleDebug
+      - name: Output
+        run: |
+          cp upstream/android/app/build/outputs/apk/debug/app-debug.apk WIPI-Android-arm64.apk
+          sha256sum WIPI-Android-arm64.apk > WIPI-Android-arm64.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: |
+            WIPI-Android-arm64.apk
+            WIPI-Android-arm64.apk.sha256
+          if-no-files-found: error
