@@ -18,6 +18,8 @@ jobs:
           git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Linux audio build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - name: Build Linux headless test program
         working-directory: upstream/rust
         run: cargo build --locked --release --package wipi_android --bin headless
