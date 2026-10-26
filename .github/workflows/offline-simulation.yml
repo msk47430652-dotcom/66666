@@ -1,0 +1,42 @@
+name: Build offline simulated network game test
+on:
+  push:
+    paths: ['.github/workflows/offline-simulation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libraries
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Clone upstream
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Patch network stub only for diagnostics
+        working-directory: upstream/rust
+        run: |
+          cargo fetch --locked
+          python3 - <<'PY'
+          from pathlib import Path
+          p=list(Path.home().glob('.cargo/git/checkouts/wie-*/**/wie-wipi-c/src/api/net.rs'))
+          assert len(p)==1,p
+          s=p[0].read_text()
+          old='context.call_function(self.cb, &[u32::MAX, self.param]).await?;'
+          assert s.count(old)==1
+          s=s.replace(old,'context.call_function(self.cb, &[0u32, self.param]).await?;')
+          p[0].write_text(s)
+          PY
+      - name: Build Linux debug runner
+        working-directory: upstream/rust
+        run: cargo build --locked --release --package wipi_android --bin headless
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wf-net-simulated-test
+          path: upstream/rust/target/release/headless
+          if-no-files-found: error
