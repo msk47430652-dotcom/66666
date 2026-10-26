@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])/"android/app/src/main/java/com/parkjeongseop/wipi/MainActivity.kt"
 s=p.read_text()
+s="@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)\n\n"+s
 needle="import androidx.compose.foundation.layout.fillMaxWidth\n"
 assert s.count(needle)==1
 s=s.replace(needle,needle+"""import androidx.compose.foundation.layout.WindowInsets
