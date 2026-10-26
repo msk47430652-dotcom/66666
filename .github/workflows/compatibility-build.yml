@@ -1,0 +1,65 @@
+name: Build Wild Frontier compatibility engine
+on:
+  push:
+    paths:
+      - 'patch_engine.py'
+      - '.github/workflows/compatibility-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned MIT WIPI emulator
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - name: Fetch Rust dependency for precision parser patch
+        working-directory: upstream/rust
+        run: cargo fetch --locked
+      - name: Apply compatibility fixes
+        run: python3 patch_engine.py upstream
+      - name: Install Android SDK and NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006'
+      - name: Install Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Configure Linux ARM64 Android cross compiler
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          cat > upstream/rust/.cargo/config.toml <<EOF
+          [target.aarch64-linux-android]
+          linker = "$NDK/aarch64-linux-android26-clang"
+          rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+          [env]
+          CC_aarch64_linux_android = "$NDK/aarch64-linux-android26-clang"
+          AR_aarch64_linux_android = "$NDK/llvm-ar"
+          EOF
+      - name: Build native engine
+        working-directory: upstream/rust
+        run: cargo build --release --locked --target aarch64-linux-android -p wipi_android
+      - name: Copy native library
+        run: |
+          mkdir -p upstream/android/app/src/main/jniLibs/arm64-v8a
+          cp upstream/rust/target/aarch64-linux-android/release/libwipi_android.so upstream/android/app/src/main/jniLibs/arm64-v8a/
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Build unsigned-content base APK with Android debug signing
+        working-directory: upstream/android
+        env:
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx4g'
+        run: gradle --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WF-S26-fixed-engine-no-game
+          path: |
+            upstream/android/app/build/outputs/apk/debug/app-debug.apk
+            upstream/rust/target/aarch64-linux-android/release/libwipi_android.so
+          if-no-files-found: error
