@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Wild Frontier APK shell
 on:
   push:
     branches: [main]
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Clone upstream
         run: git clone --depth 1 https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
-      - name: Verify game handling and patch (when private game file present)
+      - name: Create bundled game slot and patch launcher
         run: python3 scripts/embed_game.py upstream
       - uses: actions/setup-java@v4
         with:
@@ -31,7 +31,6 @@ jobs:
         run: |
           set -euo pipefail
           LLVM="$ANDROID_HOME/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          mkdir -p upstream/rust/.cargo
           printf '[target.aarch64-linux-android]\nlinker = "%s/aarch64-linux-android26-clang"\nrustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]\n[env]\nCC_aarch64_linux_android = "%s/aarch64-linux-android26-clang"\nAR_aarch64_linux_android = "%s/llvm-ar"\n' "$LLVM" "$LLVM" "$LLVM" > upstream/rust/.cargo/config.toml
       - name: Compile Rust WIPI core
         working-directory: upstream/rust
@@ -46,14 +45,18 @@ jobs:
       - name: Build APK
         working-directory: upstream/android
         run: gradle --no-daemon assembleDebug
-      - name: Output
+      - name: Output APK and offline signing utilities
         run: |
-          cp upstream/android/app/build/outputs/apk/debug/app-debug.apk WIPI-Android-arm64.apk
-          sha256sum WIPI-Android-arm64.apk > WIPI-Android-arm64.apk.sha256
+          cp upstream/android/app/build/outputs/apk/debug/app-debug.apk WildFrontier_arm64_shell.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" ./apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" ./zipalign
+          sha256sum WildFrontier_arm64_shell.apk > WildFrontier_arm64_shell.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: android-apk
+          name: wildfrontier-apk-shell-and-signing-tools
           path: |
-            WIPI-Android-arm64.apk
-            WIPI-Android-arm64.apk.sha256
+            WildFrontier_arm64_shell.apk
+            WildFrontier_arm64_shell.apk.sha256
+            apksigner.jar
+            zipalign
           if-no-files-found: error
