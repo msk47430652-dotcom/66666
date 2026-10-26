@@ -14,7 +14,7 @@ s = s.replace(a, "    while !stop.load(Ordering::SeqCst) {\n        let cycle_st
 a = "        }\n    }\n}\n\n/// 게임을 로드하고 에뮬레이터 스레드를 시작한다."
 assert s.count(a) == 1
 s = s.replace(a, """        }
-        let budget = std::time::Duration::from_millis(33);
+        let budget = std::time::Duration::from_millis(16);
         if let Some(rest) = budget.checked_sub(cycle_start.elapsed()) {
             std::thread::sleep(rest);
         }
