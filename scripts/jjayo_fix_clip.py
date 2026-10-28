@@ -28,5 +28,30 @@ new='''        WIPICGraphicsContextIdx::ClipIdx => {
             }
         }'''
 assert s.count(old)==1, f"Expected old clip handler once, got {s.count(old)}"
-p.write_text(s.replace(old,new,1))
-print("Patched one WIPI ClipIdx NULL pointer dereference:",p)
+assert s.count(old)==1, "Expected one clip reset"
+s=s.replace(old,new,1)
+old_repaint='''    let platform = context.system().platform();
+    let screen = platform.screen();
+    screen.request_redraw().unwrap();
+
+    Ok(())
+}'''
+new_repaint='''    // Some KTF games (including JJayo Tycoon 3) only call MC_grpRepaint
+    // after drawing to their screen framebuffer, never MC_grpFlushLcd.
+    // A redraw request alone cannot display pixels in mobile CaptureScreen.
+    // Capture the guest's real frontbuffer before requesting next redraw.
+    let frontbuffer_ptr: u32 = read_generic(context, SCREEN_FRAMEBUFFER_PTR)?;
+    if frontbuffer_ptr != 0 {
+        let address = context.data_ptr(WIPICIndirectPtr(frontbuffer_ptr))?;
+        let buffer = FrameBuffer(read_generic(context, address)?);
+        let image = buffer.image(context)?;
+        context.system().platform().screen().paint(&*image);
+    }
+    context.system().platform().screen().request_redraw()?;
+
+    Ok(())
+}'''
+assert s.count(old_repaint)==1, f"Expected one repaint handler, found {s.count(old_repaint)}"
+s=s.replace(old_repaint,new_repaint,1)
+p.write_text(s)
+print("Patched WIPI null clip and repaint frontbuffer capture:",p)
