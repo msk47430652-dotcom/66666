@@ -1,0 +1,37 @@
+name: Jjayo3 WIPI Null Pointer Diagnosis
+on:
+  push:
+    branches: [jjayo3-s26-build-20261028]
+    paths: ['.github/workflows/jjayo3-null-debug.yml', 'scripts/jjayo_debug_access.py']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  debug:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone verified emulator version
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - name: Rust compiler
+        uses: dtolnay/rust-toolchain@stable
+      - name: Linux native audio dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Cache/download Rust dependencies
+        working-directory: upstream/rust
+        run: cargo fetch --locked
+      - name: Instrument memory helper for exact backtrace
+        run: python3 scripts/jjayo_debug_access.py
+      - name: Compile diagnostic WIPI runner
+        working-directory: upstream/rust
+        env:
+          RUSTFLAGS: '-C debuginfo=1'
+        run: cargo build --locked --release --package wipi_android --bin headless
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jjayo3-headless-null-diagnostic
+          path: upstream/rust/target/release/headless
+          if-no-files-found: error
