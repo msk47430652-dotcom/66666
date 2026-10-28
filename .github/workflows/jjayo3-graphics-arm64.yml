@@ -1,0 +1,47 @@
+name: Build JJayo3 Graphics V3 ARM64 Engine
+on:
+  push:
+    branches: [jjayo3-s26-build-20261028]
+    paths: ['.github/workflows/jjayo3-graphics-arm64.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned open-source emulator
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Get pinned source dependencies
+        working-directory: upstream/rust
+        run: cargo fetch --locked
+      - name: Fix KTF null clip, mobile repaint, sprite clipping
+        run: |
+          python3 scripts/jjayo_fix_clip.py
+          python3 scripts/jjayo_graphics_clip_v3.py
+      - name: Configure verified NDK linker
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;27.1.12297006'
+          C="$ANDROID_HOME/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          printf '[target.aarch64-linux-android]\nlinker = "%s/aarch64-linux-android26-clang"\nrustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]\n[env]\nCC_aarch64_linux_android = "%s/aarch64-linux-android26-clang"\nAR_aarch64_linux_android = "%s/llvm-ar"\n' "$C" "$C" "$C" > upstream/rust/.cargo/config.toml
+      - name: Build ARM64 emulator
+        working-directory: upstream/rust
+        run: cargo build --locked --release --target aarch64-linux-android -p wipi_android
+      - name: Check 64-bit native library
+        run: |
+          test -s upstream/rust/target/aarch64-linux-android/release/libwipi_android.so
+          file upstream/rust/target/aarch64-linux-android/release/libwipi_android.so
+          sha256sum upstream/rust/target/aarch64-linux-android/release/libwipi_android.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jjayo3-graphics-v3-arm64-native
+          path: upstream/rust/target/aarch64-linux-android/release/libwipi_android.so
+          if-no-files-found: error
