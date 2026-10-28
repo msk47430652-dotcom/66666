@@ -1,0 +1,72 @@
+name: Build JJayo3 ShopOnly 1Won Update Shell
+on:
+  push:
+    branches: [jjayo3-s26-build-20261028]
+    paths:
+      - 'scripts/jjayo_shop_asset_refresh.py'
+      - '.github/workflows/jjayo3-shop1won-ui-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned open-source Android WIPI host
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - name: Build standalone game shell with save-preserving asset update
+        run: |
+          python3 scripts/patch_jjayo3_shell.py upstream
+          python3 scripts/jjayo_s26_ui_v3.py upstream
+          python3 scripts/jjayo_ime_android_ui.py upstream
+          python3 scripts/jjayo_shop_asset_refresh.py upstream
+          test ! -s upstream/android/app/src/main/assets/jjayo3.zip
+          grep -F 'gameFile.readBytes().contentEquals(bundledGame)' upstream/android/app/src/main/java/com/parkjeongseop/wipi/MainActivity.kt
+      - uses: actions/download-artifact@v4
+        with:
+          name: jjayo3-ime-core-v4-linux-arm64
+          run-id: 40629696054
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: native-engine
+      - name: Include proven native engine with graphics and name-entry fixes
+        run: |
+          set -euo pipefail
+          SO=$(find native-engine -type f -name libwipi_android.so -print -quit)
+          test -n "$SO"
+          mkdir -p upstream/android/app/src/main/jniLibs/arm64-v8a
+          cp "$SO" upstream/android/app/src/main/jniLibs/arm64-v8a/libwipi_android.so
+          file upstream/android/app/src/main/jniLibs/arm64-v8a/libwipi_android.so
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android 36 SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Compile signed-debug intermediate APK (without proprietary game)
+        working-directory: upstream/android
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Export unsigned content shell and Android signing tools
+        run: |
+          set -euo pipefail
+          cp upstream/android/app/build/outputs/apk/debug/app-debug.apk Jjayo3_S26_ShopOnly_1Won_AssetRefresh_Shell.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" ./apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" ./zipalign
+          unzip -l Jjayo3_S26_ShopOnly_1Won_AssetRefresh_Shell.apk | grep -F 'assets/jjayo3.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jjayo3-shop-only-1won-asset-refresh-shell
+          path: |
+            Jjayo3_S26_ShopOnly_1Won_AssetRefresh_Shell.apk
+            apksigner.jar
+            zipalign
+          if-no-files-found: error
