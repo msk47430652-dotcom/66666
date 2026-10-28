@@ -1,0 +1,62 @@
+name: Build JJayo3 S26 Korean Keyboard UI
+on:
+  push:
+    branches: [jjayo3-s26-build-20261028]
+    paths: ['scripts/jjayo_ime_android_ui.py', '.github/workflows/jjayo3-ime-ui.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned open-source WIPI app
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - name: Apply game shell and Samsung navigation area fixes
+        run: |
+          python3 scripts/patch_jjayo3_shell.py upstream
+          python3 scripts/jjayo_s26_ui_v3.py upstream
+          python3 scripts/jjayo_ime_android_ui.py upstream
+      - uses: actions/download-artifact@v4
+        with:
+          name: jjayo3-graphics-v3-arm64-native
+          run-id: 40624125161
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: native
+      - name: Attach compatible ARM64 library for build
+        run: |
+          mkdir -p upstream/android/app/src/main/jniLibs/arm64-v8a
+          test -s native/libwipi_android.so
+          cp native/libwipi_android.so upstream/android/app/src/main/jniLibs/arm64-v8a/libwipi_android.so
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android 36 platform
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Compile Kotlin keyboard UI
+        working-directory: upstream/android
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Package game-free APK shell and signing tools
+        run: |
+          cp upstream/android/app/build/outputs/apk/debug/app-debug.apk Jjayo3_S26_name_keyboard_shell.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" ./apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" ./zipalign
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jjayo3-name-keyboard-ui-shell
+          path: |
+            Jjayo3_S26_name_keyboard_shell.apk
+            apksigner.jar
+            zipalign
+          if-no-files-found: error
