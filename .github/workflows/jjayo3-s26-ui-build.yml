@@ -1,0 +1,64 @@
+name: Build JJayo3 S26 Navbar Safe Layout APK
+on:
+  push:
+    branches: [jjayo3-s26-build-20261028]
+    paths: ['scripts/jjayo_s26_ui_v3.py', '.github/workflows/jjayo3-s26-ui-build.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned MIT emulator app
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - name: Apply JJayo3 standalone game shell
+        run: python3 scripts/patch_jjayo3_shell.py upstream
+      - name: Apply Samsung safe-area keypad layout and version bump
+        run: python3 scripts/jjayo_s26_ui_v3.py upstream
+      - uses: actions/download-artifact@v4
+        with:
+          name: jjayo3-clipfix-native-and-headless
+          run-id: 40621410657
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: precompiled
+      - name: Install ARM64 native emulator engine
+        run: |
+          set -euo pipefail
+          mkdir -p upstream/android/app/src/main/jniLibs/arm64-v8a
+          cp precompiled/aarch64-linux-android/release/libwipi_android.so upstream/android/app/src/main/jniLibs/arm64-v8a/libwipi_android.so
+          test ! -s upstream/android/app/src/main/assets/jjayo3.zip
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK 36 tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Build dedicated Android app
+        working-directory: upstream/android
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Verify game shell and copy tools
+        run: |
+          set -euo pipefail
+          cp upstream/android/app/build/outputs/apk/debug/app-debug.apk Jjayo3_S26_safe_area_shell.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" ./apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" ./zipalign
+          unzip -l Jjayo3_S26_safe_area_shell.apk | grep 'assets/jjayo3.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jjayo3-navbar-safe-shell
+          path: |
+            Jjayo3_S26_safe_area_shell.apk
+            apksigner.jar
+            zipalign
+          if-no-files-found: error
