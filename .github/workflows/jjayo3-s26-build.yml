@@ -1,0 +1,66 @@
+name: Build JJayo Tycoon 3 ARM64 shell
+on:
+  push:
+    branches: [jjayo3-s26-build-20261028]
+    paths:
+      - '.github/workflows/jjayo3-s26-build.yml'
+      - 'scripts/patch_jjayo3_shell.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone tested upstream WIPI source
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - name: Obtain earlier successful native ARM64 WIPI engine
+        uses: actions/download-artifact@v4
+        with:
+          name: WF-S26-fixed-engine-no-game
+          run-id: 40273598268
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: precompiled
+      - name: Patch dedicated game-free launcher and restore native library
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_jjayo3_shell.py upstream
+          test -s precompiled/rust/target/aarch64-linux-android/release/libwipi_android.so
+          mkdir -p upstream/android/app/src/main/jniLibs/arm64-v8a
+          cp precompiled/rust/target/aarch64-linux-android/release/libwipi_android.so upstream/android/app/src/main/jniLibs/arm64-v8a/libwipi_android.so
+          test ! -s upstream/android/app/src/main/assets/jjayo3.zip
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Ensure Android SDK platform and build tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Compile ARM64 game launcher APK
+        working-directory: upstream/android
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Prepare Android signing tools and debug shell
+        run: |
+          set -euo pipefail
+          cp upstream/android/app/build/outputs/apk/debug/app-debug.apk Jjayo3_S26_shell.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" ./apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" ./zipalign
+          sha256sum Jjayo3_S26_shell.apk > Jjayo3_S26_shell.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jjayo3-s26-shell-signing-tools
+          path: |
+            Jjayo3_S26_shell.apk
+            Jjayo3_S26_shell.apk.sha256
+            apksigner.jar
+            zipalign
+          if-no-files-found: error
