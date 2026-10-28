@@ -45,16 +45,18 @@ patch('''            if (paused) {
                     text = {
                         OutlinedTextField(
                             value = typedName,
-                            onValueChange = { typedName = it.filter { c ->
-                                c in '\\uAC00'..'\\uD7A3' || c in 'A'..'Z' || c in 'a'..'z' || c.isDigit()
-                            }.take(4) },
+                            onValueChange = { typedName = it.take(12) },
                             label = { Text("한글 최대 4글자") },
                             singleLine = true,
                         )
                     },
                     confirmButton = {
                         TextButton(
-                            enabled = typedName.isNotBlank(),
+                            enabled = typedName.isNotBlank() && typedName.length <= 4 &&
+                                typedName.all { c ->
+                                    c in '\\uAC00'..'\\uD7A3' || c in 'A'..'Z' ||
+                                    c in 'a'..'z' || c.isDigit()
+                                },
                             onClick = {
                                 val count = WipiNative.nativeQueueText(typedName)
                                 if (count > 0) {
