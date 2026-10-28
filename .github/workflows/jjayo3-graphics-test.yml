@@ -1,0 +1,38 @@
+name: Test Jjayo3 Context Clipping (No Game in CI)
+on:
+  push:
+    branches: [jjayo3-s26-build-20261028]
+    paths:
+      - 'scripts/jjayo_graphics_clip_v3.py'
+      - '.github/workflows/jjayo3-graphics-test.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  graphics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned WIPI source
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux build dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Resolve frozen emulator dependency
+        working-directory: upstream/rust
+        run: cargo fetch --locked
+      - name: Patch engine with reproduced fixes and context clipping
+        run: |
+          python3 scripts/jjayo_fix_clip.py
+          python3 scripts/jjayo_graphics_clip_v3.py
+      - name: Compile Linux headless game tester
+        working-directory: upstream/rust
+        run: cargo build --release --locked --package wipi_android --bin headless
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jjayo3-clip-v3-linux-tester
+          path: upstream/rust/target/release/headless
+          if-no-files-found: error
