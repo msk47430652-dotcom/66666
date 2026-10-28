@@ -1,0 +1,39 @@
+name: Jjayo3 Text Input ABI Probe
+on:
+  push:
+    branches: [jjayo3-s26-build-20261028]
+    paths:
+      - 'scripts/jjayo_ime_probe.py'
+      - '.github/workflows/jjayo3-ime-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  headless:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone verified upstream WIPI
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux audio dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Download Rust source
+        working-directory: upstream/rust
+        run: cargo fetch --locked
+      - name: Apply verified screen fixes + trace input API
+        run: |
+          python3 scripts/jjayo_fix_clip.py
+          python3 scripts/jjayo_graphics_clip_v3.py
+          python3 scripts/jjayo_ime_probe.py
+      - name: Compile diagnostic Linux runner
+        working-directory: upstream/rust
+        run: cargo build --locked --release -p wipi_android --bin headless
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jjayo3-ime-probe-linux
+          path: upstream/rust/target/release/headless
+          if-no-files-found: error
