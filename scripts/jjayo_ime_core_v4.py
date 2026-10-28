@@ -69,7 +69,7 @@ async fn jjayo_im_handle(
     write_generic(ctx, composing_size, 0i32)?;
 
     // WIPI KEY_PRESSED=1. Never duplicate a character on key release.
-    if event_type != 1 { return Ok(0); }
+    if event_type != 2 { return Ok(0); }
     let queued = JJAYO_PENDING.lock().as_ref().and_then(|q| q.front().cloned());
     let payload = if let Some(bytes) = queued {
         Some((bytes, true))
@@ -147,7 +147,6 @@ anchor="pub fn key_down(key: &str) {"
 assert s.count(anchor)==1
 s=s.replace(anchor,'''/// Stage up to 4 complete characters for the Clet input-method callback.
 pub fn queue_guest_name(text: &str) -> i32 {
-    if SESSION.lock().unwrap().is_none() { return 0; }
     wie_ktf::queue_guest_name(text) as i32
 }
 
@@ -171,3 +170,25 @@ pub extern "system" fn Java_com_parkjeongseop_wipi_WipiNative_nativeQueueText(
 '''+anchor,1)
 p.write_text(s)
 print("Added WIPI Android JNI nativeQueueText function.")
+
+
+# Export the same function to the Linux headless tester, which can
+# verify that a Korean name is genuinely accepted by the guest game.
+p=Path(__import__("sys").argv[1])/"rust/wipi_android/src/lib.rs"
+s=p.read_text()
+s+='''
+
+pub use wipi_core::session::queue_guest_name;
+'''
+p.write_text(s)
+p=Path(__import__("sys").argv[1])/"rust/wipi_android/src/bin/headless.rs"
+s=p.read_text()
+anchor="    let start = std::time::Instant::now();"
+assert s.count(anchor)==1
+s=s.replace(anchor,'''    if let Ok(name) = std::env::var("JJAYO_TEST_NAME") {
+        eprintln!("JJAYO_TEST_QUEUED={}", wipi_android::queue_guest_name(&name));
+    }
+
+'''+anchor,1)
+p.write_text(s)
+print("Linux headless runner supports JJAYO_TEST_NAME for Korean text verification.")
