@@ -33,7 +33,8 @@ static JJAYO_MODE: AtomicI32 = AtomicI32::new(2);
 pub fn jjayo_queue_guest_name(text: &str) -> usize {
     let mut queue = VecDeque::new();
     for ch in text.chars().take(4) {
-        let (bytes, _encoding, had_errors) = encoding_rs::EUC_KR.encode(&ch.to_string());
+        let character_text = ch.to_string();
+        let (bytes, _encoding, had_errors) = encoding_rs::EUC_KR.encode(&character_text);
         if !had_errors && !bytes.is_empty() && bytes.len() <= 4 {
             queue.push_back(bytes.to_vec());
         }
