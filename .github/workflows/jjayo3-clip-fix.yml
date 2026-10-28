@@ -1,0 +1,54 @@
+name: Build JJayo3 Clip Fix Engine (No Game Uploaded)
+on:
+  push:
+    branches: [jjayo3-s26-build-20261028]
+    paths: ['.github/workflows/jjayo3-clip-fix.yml', 'scripts/jjayo_fix_clip.py']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned upstream project
+        run: |
+          git clone https://github.com/ParkJeongseop/WIPI-Emulator.git upstream
+          git -C upstream checkout ca199cc2e8c8f9d7569a2232bc48f48e94593af5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Install Linux native dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Download and lock WIPI core
+        working-directory: upstream/rust
+        run: cargo fetch --locked
+      - name: Apply targeted null-clip graphics patch
+        run: python3 scripts/jjayo_fix_clip.py
+      - name: Compile local headless regression tester
+        working-directory: upstream/rust
+        run: cargo build --locked --release -p wipi_android --bin headless
+      - name: Prepare NDK 27.1 Android ARM64 linker
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;27.1.12297006'
+          C="$ANDROID_HOME/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          printf '[target.aarch64-linux-android]\nlinker = "%s/aarch64-linux-android26-clang"\nrustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]\n[env]\nCC_aarch64_linux_android = "%s/aarch64-linux-android26-clang"\nAR_aarch64_linux_android = "%s/llvm-ar"\n' "$C" "$C" "$C" > upstream/rust/.cargo/config.toml
+      - name: Compile Android ARM64 native engine
+        working-directory: upstream/rust
+        run: cargo build --locked --release --target aarch64-linux-android -p wipi_android
+      - name: Assert both executables exist
+        run: |
+          test -s upstream/rust/target/release/headless
+          test -s upstream/rust/target/aarch64-linux-android/release/libwipi_android.so
+          file upstream/rust/target/aarch64-linux-android/release/libwipi_android.so
+          sha256sum upstream/rust/target/aarch64-linux-android/release/libwipi_android.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jjayo3-clipfix-native-and-headless
+          path: |
+            upstream/rust/target/release/headless
+            upstream/rust/target/aarch64-linux-android/release/libwipi_android.so
+          if-no-files-found: error
